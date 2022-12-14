@@ -301,7 +301,7 @@ string reg(int n) {
         return "t5";
     if (n == 31)
         return "t6";
-    return "lkl";
+    return "invalid";
 }
 
 string bind(int n) {
@@ -320,7 +320,7 @@ string bind(int n) {
         return "LOPROC";
     if (n == 15)
         return "HIPROC";
-    return "";
+    return "invalid";
 }
 
 string index(int n) {
@@ -361,7 +361,7 @@ string vis(int n) {
         return "SINGLETON";
     if (n == 6)
         return "ELIMINATE";
-    return "";
+    return "invalid";
 }
 
 string type(int n) {
@@ -388,7 +388,7 @@ string type(int n) {
         return "LOPROC";
     if (n == 15)
         return "HIPROC";
-    return "";
+    return "invalid";
 }
 
 int add_to_two(int n, int size) {
@@ -402,9 +402,20 @@ int main(int argc, char *argv[]) {
 
     f = fopen(argv[1], "r");
     g = fopen(argv[2], "w");
-
+    if(!f){
+        printf("input file is not available");
+        return 0;
+    }
+    if(!g){
+        printf("output file is not available");
+        return 0;
+    }
 
     fread(&elf_header, sizeof(ELF_32_header), 1, f);
+    if(elf_header.version!=1){
+        printf("invalid file version");
+        return 0;
+    }
 
     //читаем заголовки
     fseek(f, int(elf_header.shoff), SEEK_SET);
@@ -454,7 +465,7 @@ int main(int argc, char *argv[]) {
         int cur = 0;
         fread(&cur, 4, 1, f);
         string command = get_command(cur);
-        int imm = 0;
+        int imm;
         if (command == "jal") {
             uint32_t immp1, immp2, immp3, immp4;
             immp1 = ((cur & (uint32_t) 0b10000000000000000000000000000000) >> 31) << 1;
@@ -508,10 +519,9 @@ int main(int argc, char *argv[]) {
     addr = int(text_header.sh_addr);
 
     for (int i = 0; i < text_header.sh_size / 4; i++) {
-
         if (addr_name.find(int(addr)) != addr_name.end()) {
             const char *adname = addr_name[addr].c_str();
-            fprintf(g, "%x <%s>:\n", addr, adname);
+            fprintf(g, "%08x <%s>:\n", addr, adname);
         }
 
         fseek(f, offset_text + i * 4, SEEK_SET);
@@ -519,16 +529,27 @@ int main(int argc, char *argv[]) {
         fread(&cur, 4, 1, f);
         string command = get_command(cur);
         const char *com = command.c_str();
-        fprintf(g, "%x:\t", addr);
+        fprintf(g, "%05x:\t", addr);
 
         if (command == "lui" || command == "auipc") {
             int rg = (cur & 0b111110000000) >> 7;
-            const char *rd = reg(rg).c_str();
+            string srd = reg(rg);
+            if(srd=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
+            const char *rd = srd.c_str();
             int imm = add_to_two(int((cur & 0b11111111111111111111000000000000) >> 12), 20);
             fprintf(g, "%08x\t%7s\t%s,0x%x\n", cur, com, rd, imm);
         } else if (command == "jal") {
             int rg = (cur & 0b111110000000) >> 7;
-            const char *rd = reg(rg).c_str();
+            string srg = reg(rg);
+            if(srg=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
+
+            const char *rd = srg.c_str();
 
             uint32_t immp1, immp2, immp3, immp4, imm;
             immp1 = ((cur & (uint32_t) 0b10000000000000000000000000000000) >> 31) << 1;
@@ -551,8 +572,15 @@ int main(int argc, char *argv[]) {
             int rgd = (cur & 0b111110000000) >> 7;
             int rgs1 = (cur & 0b11111000000000000000) >> 15;
             string imm = to_string(add_to_two(int((cur & 0b11111111111100000000000000000000) >> 20), 12));
-            const char *rs1 = reg(rgs1).c_str();
-            const char *rd = reg(rgd).c_str();
+            string srgs1 = reg(rgs1);
+            string srgs2 = reg(rgd);
+            if(srgs1=="invalid" || srgs2=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
+
+            const char *rs1 = srgs1.c_str();
+            const char *rd = srgs2.c_str();
             const char *imm1 = imm.c_str();
 
             fprintf(g, "%08x\t%7s\t%s, %s(%s)\n", cur, com, rd, imm1, rs1);
@@ -562,8 +590,15 @@ int main(int argc, char *argv[]) {
 
             int rgs2 = (cur & 0b1111100000000000000000000) >> 20;
             int rgs1 = (cur & 0b11111000000000000000) >> 15;
-            const char *rs1 = reg(rgs1).c_str();
-            const char *rs2 = reg(rgs2).c_str();
+            string srs1 = reg(rgs1);
+            const char *rs1 = srs1.c_str();
+            string srs2 = reg(rgs2);
+            const char *rs2 = srs2.c_str();
+            if(srs1=="invalid" || srs2=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
+
 
             uint32_t immp1, immp2, immp3, immp4, imm;
             immp1 = ((cur & (uint32_t) 0b10000000000000000000000000000000) >> 31) << 1;
@@ -582,11 +617,18 @@ int main(int argc, char *argv[]) {
         } else if (command == "sh" || command == "sb" || command == "sw") {
             int rgs2 = (cur & 0b1111100000000000000000000) >> 20;
             int rgs1 = (cur & 0b11111000000000000000) >> 15;
-            const char *rs1 = reg(rgs1).c_str();
-            const char *rs2 = reg(rgs2).c_str();
+            string srs1 = reg(rgs1);
+            string srs2 = reg(rgs2);
+            if(srs1=="invalid" || srs2=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
+
+            const char *rs1 = srs1.c_str();
+            const char *rs2 = srs2.c_str();
             uint32_t immp1, immp2, imm;
-            immp1 = ((cur & (uint32_t) 0b11111110000000000000000000000000) >> 31);
-            immp2 = ((cur & (uint32_t) 0b00000000000000000000111110000000) >> 12);
+            immp1 = ((cur & (uint32_t) 0b11111110000000000000000000000000) >> 25);
+            immp2 = ((cur & (uint32_t) 0b00000000000000000000111110000000) >> 7);
 
             imm = immp1 * 32 + immp2;
 
@@ -600,9 +642,15 @@ int main(int argc, char *argv[]) {
             int rgd = (cur & 0b111110000000) >> 7;
             int rgs1 = (cur & 0b11111000000000000000) >> 15;
             string imm = to_string(add_to_two(int((cur & 0b11111111111100000000000000000000) >> 20), 12));
+            string srs = reg(rgs1);
+            string srd = reg(rgd);
+            if(srs=="invalid" || srd=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
 
-            const char *rs1 = reg(rgs1).c_str();
-            const char *rd = reg(rgd).c_str();
+            const char *rs1 = srs.c_str();
+            const char *rd = srd.c_str();
             const char *imm1 = imm.c_str();
             fprintf(g, "%08x\t%7s\t%s, %s, %s\n", cur, com, rd, rs1, imm1);
         } else if (command == "add" || command == "sub" || command == "sll" ||
@@ -615,9 +663,17 @@ int main(int argc, char *argv[]) {
             int rgs2 = (cur & 0b1111100000000000000000000) >> 20;
             int rgd = (cur & 0b111110000000) >> 7;
             int rgs1 = (cur & 0b11111000000000000000) >> 15;
-            const char *rs1 = reg(rgs1).c_str();
-            const char *rd = reg(rgd).c_str();
-            const char *rs2 = reg(rgs2).c_str();
+            string srs1 = reg(rgs1);
+            string srd = reg(rgd);
+            string srs2 = reg(rgs2);
+            if(srs1=="invalid" || srd=="invalid" || srs2=="invalid"){
+                printf("invalid reg");
+                return 0;
+            }
+
+            const char *rs1 = srs1.c_str();
+            const char *rd = srd.c_str();
+            const char *rs2 = srs2.c_str();
             fprintf(g, "%08x\t%7s\t%s, %s, %s\n", cur, com, rd, rs1, rs2);
 
         } else if (command == "ecall" || command == "ebreak") {
@@ -645,6 +701,10 @@ int main(int argc, char *argv[]) {
 
         int value = int(symtab[i].st_value);
         int size = int(symtab[i].st_size);
+        if(stype == "invalid" || sbind == "invalid" || svis=="invalid" || sindex == "invalid"){
+            printf("invalid symtab");
+            return 0;
+        }
         fprintf(g, "[%4i] 0x%-15X %5i %-8s %-8s %-8s %6s %s\n", i, value, size, type_, bind_, vis_, index_, name);
     }
 
